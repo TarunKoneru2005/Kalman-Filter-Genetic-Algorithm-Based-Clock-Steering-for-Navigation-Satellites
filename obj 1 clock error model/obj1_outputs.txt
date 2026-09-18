@@ -1,0 +1,51 @@
+============================================================
+  CLOCK ERROR STATE-SPACE MODEL  (Objective 1)
+============================================================
+
+Sampling interval      : 1.0 s
+Simulation length      : 500 steps  (500.0 s)
+
+State vector  x = [bias (s),  freq_offset,  drift (1/s)]
+
+State Transition Matrix F:
+[[1.  1.  0.5]
+ [0.  1.  1. ]
+ [0.  0.  1. ]]
+
+Process Noise Covariance Q:
+[[2.06666667e-19 1.00000000e-20 0.00000000e+00]
+ [1.00000000e-20 2.00000000e-20 0.00000000e+00]
+ [0.00000000e+00 0.00000000e+00 1.00000000e-24]]
+
+Measurement Noise Variance R: 1.000e-16  (sigma=10.0 ns)
+
+Initial True State x0 = [5.e-08 1.e-09 0.e+00]
+
+Final True State   xN = [6.04583658e-07 7.71073633e-09 2.96354594e-11]
+
+Max Clock Bias  : 604.58 ns
+Max Freq Offset : 7.7107 ns/s
+Results plotted and saved to 'clock_error_model.png'
+
+
+
+
+
+                                                                                                                   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

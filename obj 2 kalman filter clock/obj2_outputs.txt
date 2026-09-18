@@ -1,0 +1,74 @@
+============================================================
+  KALMAN FILTER RESULTS
+============================================================
+
+RMSE (raw measurement)  : 9.852 ns
+RMSE (Kalman estimate)  : 3.7781 ns
+RMSE improvement        : 2.6×
+Convergence step        : k = 0  (0 s)
+Steady-state RMSE       : 2.7381 ns  (last 20% of run)
+
+Final Kalman Gain K     :
+[1.65490402e-01 1.40384010e-02 9.11687672e-05]
+
+Final Covariance diag P : [1.65490402e-17 2.56606551e-19 1.53418368e-22]
+
+[✓] Plot saved successfully
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,402 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <math.h>
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+#define LED_PIN 13
+#define DT 1.0f
+
+// =====================================================
+// BASE MODEL PARAMETERS
+// =====================================================
+
+#define H0  2e-19f
+#define H_2 2e-20f
+
+#define SIGMA_MEAS 10e-9f
+
+#define Q11_BASE (H0*DT + (H_2*DT*DT*DT)/3.0f)
+#define Q12_BASE ((H_2*DT*DT)/2.0f)
+#define Q22_BASE (H_2*DT)
+#define Q33_BASE 1e-24f
+
+#define R_BASE (SIGMA_MEAS * SIGMA_MEAS)
+
+// =====================================================
+// GA OPTIMIZED SCALES
+// =====================================================
+
+#define Q_GA_SCALE 0.004459f
+#define R_GA_SCALE 0.0001f
+
+// =====================================================
+// SYSTEM MATRICES
+// =====================================================
+
+float F[3][3] = {
+  {1.0f, DT, 0.5f*DT*DT},
+  {0.0f, 1.0f, DT},
+  {0.0f, 0.0f, 1.0f}
+};
+
+// =====================================================
+// MANUAL KF PARAMETERS
+// =====================================================
+
+float Qm[3][3] = {
+  {Q11_BASE, Q12_BASE, 0},
+  {Q12_BASE, Q22_BASE, 0},
+  {0, 0, Q33_BASE}
+};
+
+float Rm = R_BASE;
+
+// =====================================================
+// GA KF PARAMETERS
+// =====================================================
+
+float Qg[3][3] = {
+  {Q11_BASE * Q_GA_SCALE,
+   Q12_BASE * Q_GA_SCALE,
+   0},
+
+  {Q12_BASE * Q_GA_SCALE,
+   Q22_BASE * Q_GA_SCALE,
+   0},
+
+  {0,0,Q33_BASE * Q_GA_SCALE}
+};
+
+float Rg = R_BASE * R_GA_SCALE;
+
+// =====================================================
+// FILTER STATES
+// =====================================================
+
+// Manual
+float xm[3] = {0,0,0};
+
+float Pm[3][3] = {
+  {1e-12f,0,0},
+  {0,1e-16f,0},
+  {0,0,1e-24f}
+};
+
+// GA
+float xg[3] = {0,0,0};
+
+float Pg[3][3] = {
+  {1e-12f,0,0},
+  {0,1e-16f,0},
+  {0,0,1e-24f}
+};
+
+// =====================================================
+// TRUE SYSTEM
+// =====================================================
+
+float true_bias   = 50e-9f;
+float true_offset = 1e-9f;
+float true_drift  = 0.0f;
+
+unsigned long lastPPS = 0;
+
+uint32_t step_count = 0;
+
+// RMS accumulators
+float rms_m_sum = 0;
+float rms_g_sum = 0;
+
+// =====================================================
+// RANDOM NOISE
+// =====================================================
+
+float rand_noise() {
+
+  static uint32_t rng = 123456;
+
+  rng = rng * 1664525UL + 1013904223UL;
+
+  return ((int32_t)rng) * 1e-18f;
+}
+
+// =====================================================
+// MATRIX OPERATIONS
+// =====================================================
+
+void mat_mul(
+  float A[3][3],
+  float B[3][3],
+  float C[3][3]
+) {
+
+  for(int i=0;i<3;i++) {
+
+    for(int j=0;j<3;j++) {
+
+      C[i][j] = 0;
+
+      for(int k=0;k<3;k++) {
+        C[i][j] += A[i][k] * B[k][j];
+      }
+    }
+  }
+}
+
+void mat_transpose(
+  float A[3][3],
+  float T[3][3]
+) {
+
+  for(int i=0;i<3;i++) {
+
+    for(int j=0;j<3;j++) {
+      T[i][j] = A[j][i];
+    }
+  }
+}
+
+void mat_vec(
+  float A[3][3],
+  float x[3],
+  float y[3]
+) {
+
+  for(int i=0;i<3;i++) {
+
+    y[i] = 0;
+
+    for(int j=0;j<3;j++) {
+      y[i] += A[i][j] * x[j];
+    }
+  }
+}
+
+// =====================================================
+// FULL KALMAN FILTER
+// =====================================================
+
+void kf_step(
+  float x[3],
+  float P[3][3],
+  float Q[3][3],
+  float R,
+  float z
+) {
+
+  // =====================================
+  // PREDICTION
+  // =====================================
+
+  float xp[3];
+
+  mat_vec(F, x, xp);
+
+  // P_pred = F P Fᵀ + Q
+
+  float Ft[3][3];
+  float FP[3][3];
+  float Ppred[3][3];
+
+  mat_transpose(F, Ft);
+
+  mat_mul(F, P, FP);
+
+  mat_mul(FP, Ft, Ppred);
+
+  // Add process noise Q
+  for(int i=0;i<3;i++) {
+
+    for(int j=0;j<3;j++) {
+
+      Ppred[i][j] += Q[i][j];
+    }
+  }
+
+  // =====================================
+  // UPDATE
+  // =====================================
+
+  // Innovation
+  float innov = z - xp[0];
+
+  // Innovation covariance
+  float S = Ppred[0][0] + R;
+
+  // Kalman gain
+  float K[3];
+
+  for(int i=0;i<3;i++) {
+    K[i] = Ppred[i][0] / S;
+  }
+
+  // State update
+  for(int i=0;i<3;i++) {
+    x[i] = xp[i] + K[i] * innov;
+  }
+
+  // Covariance update
+  float Pnew[3][3];
+
+  for(int i=0;i<3;i++) {
+
+    for(int j=0;j<3;j++) {
+
+      Pnew[i][j] =
+        Ppred[i][j]
+        - K[i] * Ppred[0][j];
+    }
+  }
+
+  // Symmetrize
+  for(int i=0;i<3;i++) {
+
+    for(int j=0;j<3;j++) {
+
+      P[i][j] =
+        0.5f * (Pnew[i][j] + Pnew[j][i]);
+    }
+  }
+}
+
+// =====================================================
+// SETUP
+// =====================================================
+
+void setup() {
+
+  Serial.begin(115200);
+
+  pinMode(LED_PIN, OUTPUT);
+
+  lcd.init();
+  lcd.backlight();
+
+  lcd.setCursor(0,0);
+  lcd.print("FULL 3x3 KF");
+
+  lcd.setCursor(0,1);
+  lcd.print("Manual vs GA");
+
+  delay(2000);
+
+  lcd.clear();
+
+  Serial.println("======================================");
+  Serial.println("FULL COVARIANCE KF COMPARISON");
+  Serial.println("======================================");
+
+  Serial.println(
+    "Step,True(ns),Manual(ns),GA(ns),RMSE_M,RMSE_G"
+  );
+}
+
+// =====================================================
+// LOOP
+// =====================================================
+
+void loop() {
+
+  if(millis() - lastPPS >= 1000) {
+
+    lastPPS = millis();
+
+    step_count++;
+
+    digitalWrite(
+      LED_PIN,
+      !digitalRead(LED_PIN)
+    );
+
+    // =====================================
+    // TRUE SYSTEM
+    // =====================================
+
+    float w1 = rand_noise();
+    float w2 = rand_noise();
+
+    true_offset += true_drift * DT + w2;
+
+    true_bias += true_offset * DT + w1;
+
+    // Measurement
+    float z =
+      true_bias +
+      SIGMA_MEAS * rand_noise();
+
+    // =====================================
+    // RUN FILTERS
+    // =====================================
+
+    kf_step(xm, Pm, Qm, Rm, z);
+
+    kf_step(xg, Pg, Qg, Rg, z);
+
+    // =====================================
+    // ERRORS
+    // =====================================
+
+    float err_m =
+      (xm[0] - true_bias) * 1e9f;
+
+    float err_g =
+      (xg[0] - true_bias) * 1e9f;
+
+    rms_m_sum += err_m * err_m;
+
+    rms_g_sum += err_g * err_g;
+
+    float rms_m =
+      sqrt(rms_m_sum / step_count);
+
+    float rms_g =
+      sqrt(rms_g_sum / step_count);
+
+    // =====================================
+    // SERIAL OUTPUT
+    // =====================================
+
+    Serial.print(step_count);
+    Serial.print(",");
+
+    Serial.print(true_bias * 1e9f,4);
+    Serial.print(",");
+
+    Serial.print(xm[0] * 1e9f,4);
+    Serial.print(",");
+
+    Serial.print(xg[0] * 1e9f,4);
+    Serial.print(",");
+
+    Serial.print(rms_m,4);
+    Serial.print(",");
+
+    Serial.println(rms_g,4);
+
+    // =====================================
+    // LCD OUTPUT
+    // =====================================
+
+    lcd.setCursor(0,0);
+
+    lcd.print("M:");
+    lcd.print(rms_m,2);
+    lcd.print(" ");
+
+    lcd.setCursor(8,0);
+
+    lcd.print("G:");
+    lcd.print(rms_g,2);
+    lcd.print(" ");
+
+    lcd.setCursor(0,1);
+
+    if(rms_g < rms_m) {
+      lcd.print("GA Better     ");
+    }
+    else {
+      lcd.print("Manual Better ");
+    }
+  }
+}
