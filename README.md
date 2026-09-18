@@ -307,7 +307,3 @@ Contributions included clock modeling, Kalman Filter implementation, Genetic Alg
 ## Disclaimer
 
 This project is an academic simulation and research implementation. It is not an implementation or modification of operational NavIC, ISRO, or other satellite-navigation infrastructure. References to NavIC and GNSS describe the intended application context of the work.
-
-## License
-
-This project is intended for academic and educational purposes. Refer to the LICENSE file for applicable usage and redistribution terms.
